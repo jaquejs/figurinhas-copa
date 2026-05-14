@@ -32,9 +32,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);displ
 .us-eyebrow{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--text3)}
 .us-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(38px,10vw,54px);color:var(--amarelo);text-align:center;line-height:1}
 .us-sub{font-size:14px;color:var(--text2);text-align:center}
-.user-cards{display:flex;gap:1rem;width:100%;max-width:360px;justify-content:center}
+.user-cards{display:flex;gap:.75rem;width:100%;max-width:420px;justify-content:center;flex-wrap:wrap}
 .user-card{
-  flex:1;max-width:160px;background:var(--bg2);border:1px solid var(--border);
+  flex:1;min-width:110px;max-width:140px;background:var(--bg2);border:1px solid var(--border);
   border-radius:16px;padding:1.5rem 1rem;display:flex;flex-direction:column;
   align-items:center;gap:.75rem;cursor:pointer;
   transition:transform .2s,border-color .2s,box-shadow .2s;
@@ -267,6 +267,12 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);displ
       <div class="u-count" style="--c:#58a6ff" id="prev-claudio">0</div>
       <div class="u-label">coladas</div>
     </div>
+    <div class="user-card" style="--c:#e05cff" onclick="selectUser('lorenzo2')">
+      <div class="u-avatar" style="--c:#e05cff">L2</div>
+      <div class="u-name">Lorenzo 2</div>
+      <div class="u-count" style="--c:#e05cff" id="prev-lorenzo2">0</div>
+      <div class="u-label">coladas</div>
+    </div>
   </div>
 </div>
 
@@ -477,9 +483,10 @@ const TOTAL = ALL_KEYS.length; // 994
 const USERS = {
   lorenzo:{name:'Lorenzo',color:'#2db85a'},
   claudio:{name:'Claudio',color:'#58a6ff'},
+  lorenzo2:{name:'Lorenzo 2',color:'#e05cff'},
 };
 let currentUser = null;
-let states = {lorenzo:{},claudio:{}};
+let states = {lorenzo:{},claudio:{},lorenzo2:{}};
 let accessToken = null;
 let fileIds = {};
 let clientId = localStorage.getItem('gdrive_cid')||'';
@@ -493,7 +500,7 @@ function emptyState(){
 }
 
 function loadLocal(){
-  ['lorenzo','claudio'].forEach(u=>{
+  ['lorenzo','claudio','lorenzo2'].forEach(u=>{
     const raw=localStorage.getItem('fig2026_'+u);
     try{states[u]=raw?JSON.parse(raw):emptyState();}
     catch{states[u]=emptyState();}
@@ -508,7 +515,7 @@ function countTenho(u){return Object.values(states[u]||{}).filter(v=>v===1).leng
 //  USER SELECT
 // ══════════════════════════════════════
 function updateUserScreen(){
-  ['lorenzo','claudio'].forEach(u=>{
+  ['lorenzo','claudio','lorenzo2'].forEach(u=>{
     const el=document.getElementById('prev-'+u);
     if(el)el.textContent=countTenho(u);
   });
