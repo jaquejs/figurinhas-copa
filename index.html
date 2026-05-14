@@ -287,7 +287,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);displ
     </span>
     <div class="topbar-right">
       <span class="sync-txt" id="sync-txt"></span>
-      <button class="drive-btn" id="drive-btn" onclick="openDriveModal()">☁ Drive</button>
+      <button class="drive-btn" id="drive-btn" onclick="openDriveModal()">⛅ Sheets</button>
     </div>
   </div>
 
@@ -333,25 +333,48 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);displ
   </div>
 </div>
 
-<!-- DRIVE MODAL -->
+<!-- SHEETS MODAL -->
 <div class="overlay" id="drive-modal">
   <div class="modal">
-    <div class="modal-title">Google Drive</div>
-    <p style="font-size:14px;color:var(--text2);margin-bottom:.75rem;line-height:1.5">
-      Dados de <strong id="modal-uname" style="color:var(--text)"></strong> salvos em
-      <code id="modal-fname" style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:12px;color:var(--verde2)"></code>
-    </p>
-    <ol class="modal-steps">
-      <li>Acesse <strong>console.cloud.google.com</strong> e crie um projeto.</li>
-      <li>Ative a <strong>Google Drive API</strong>.</li>
-      <li>Crie um <strong>OAuth 2.0 Client ID</strong> tipo "Aplicativo da Web".</li>
-      <li>Adicione a URL do GitHub Pages em "Origens autorizadas".</li>
-      <li>Cole o <strong>Client ID</strong> abaixo:</li>
-    </ol>
-    <input class="modal-input" type="text" id="cid-input" placeholder="Cole seu Google OAuth Client ID...">
-    <div class="modal-note">💡 Mesmo Client ID para os dois usuários. Cada um salva em arquivo JSON separado no Drive.</div>
-    <button class="btn-p" onclick="iniciarAuth()">Conectar ao Drive</button>
-    <button class="btn-g" onclick="closeDriveModal()">Cancelar</button>
+    <div class="modal-title" id="modal-title-txt">Conectar ao Google Sheets</div>
+
+    <!-- PASSO 1: Client ID -->
+    <div id="modal-step-cid">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:.85rem;line-height:1.6">
+        Os dados de <strong id="modal-uname" style="color:var(--text)"></strong> serão salvos numa planilha Google Sheets compartilhada entre todos os usuários.
+      </p>
+      <ol class="modal-steps">
+        <li>Acesse <strong>console.cloud.google.com</strong> → crie um projeto.</li>
+        <li>Ative a <strong>Google Sheets API</strong> e a <strong>Google Drive API</strong>.</li>
+        <li>Em "Credenciais" crie um <strong>OAuth 2.0 Client ID</strong> tipo "Aplicativo da Web".</li>
+        <li>Em "Origens JavaScript autorizadas" adicione a URL do seu GitHub Pages.</li>
+        <li>Em "URIs de redirecionamento" adicione também a mesma URL.</li>
+        <li>Em "Tela de consentimento" → "Audience" → publique o app.</li>
+        <li>Cole o <strong>Client ID</strong> abaixo:</li>
+      </ol>
+      <input class="modal-input" type="text" id="cid-input" placeholder="Cole seu Google OAuth Client ID...">
+      <div class="modal-note">💡 Um único Client ID para todos os usuários. Os dados ficam numa só planilha com abas separadas por usuário.</div>
+      <button class="btn-p" onclick="iniciarAuth()">Conectar e autorizar</button>
+      <button class="btn-g" onclick="closeDriveModal()">Cancelar</button>
+    </div>
+
+    <!-- PASSO 2: ID da planilha -->
+    <div id="modal-step-sheet" style="display:none">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:.85rem;line-height:1.6">
+        ✅ Autorizado! Agora informe o ID da planilha Google Sheets onde os dados serão salvos.
+      </p>
+      <ol class="modal-steps">
+        <li>Acesse <strong>sheets.google.com</strong> e crie uma planilha nova.</li>
+        <li>Copie o ID da URL — é a parte entre <code>/d/</code> e <code>/edit</code>:<br>
+          <code style="font-size:10px;word-break:break-all">docs.google.com/spreadsheets/d/<strong>ID_AQUI</strong>/edit</code>
+        </li>
+        <li>Cole o ID abaixo:</li>
+      </ol>
+      <input class="modal-input" type="text" id="sheet-id-input" placeholder="Cole o ID da planilha...">
+      <div class="modal-note">💡 A planilha será criada com abas: Lorenzo, Claudio, Lorenzo2. Compartilhe a planilha com os e-mails que precisam ver os dados.</div>
+      <button class="btn-p" onclick="confirmarSheet()">Salvar e carregar dados</button>
+      <button class="btn-g" onclick="closeDriveModal()">Cancelar</button>
+    </div>
   </div>
 </div>
 
@@ -488,6 +511,7 @@ const USERS = {
 let currentUser = null;
 let states = {lorenzo:{},claudio:{},lorenzo2:{}};
 let accessToken = null;
+let sheetId = localStorage.getItem('gsheet_id')||'';
 let fileIds = {};
 let clientId = localStorage.getItem('gdrive_cid')||'';
 let saveTimer = null;
@@ -504,7 +528,6 @@ function loadLocal(){
     const raw=localStorage.getItem('fig2026_'+u);
     try{states[u]=raw?JSON.parse(raw):emptyState();}
     catch{states[u]=emptyState();}
-    fileIds[u]=localStorage.getItem('gdrive_fid_'+u)||null;
   });
 }
 
@@ -530,12 +553,9 @@ function selectUser(user){
   document.getElementById('u-name-top').textContent=USERS[user].name;
   document.getElementById('u-dot').style.background=USERS[user].color;
   document.getElementById('s-total').textContent=TOTAL;
-  accessToken=localStorage.getItem('gdrive_tok_'+user)||null;
-  const db=document.getElementById('drive-btn');
-  if(accessToken){db.classList.add('on');db.textContent='☁ Drive ✓';}
-  else{db.classList.remove('on');db.textContent='☁ Drive';}
   buildUI();
   applyState();
+  tryReconnect(user);
 }
 
 function goBack(){
@@ -877,22 +897,38 @@ function toast(msg){clearTimeout(toastT);const el=document.getElementById('toast
 function setSyncTxt(msg){document.getElementById('sync-txt').textContent=msg;}
 
 // ══════════════════════════════════════
-//  GOOGLE DRIVE
+//  GOOGLE SHEETS
 // ══════════════════════════════════════
+
+// Mapa de usuário → nome da aba na planilha
+const SHEET_TABS = {lorenzo:'Lorenzo', claudio:'Claudio', lorenzo2:'Lorenzo2'};
+// Colunas: A=key, B=valor (0/1/2)
+// Linha 1 = cabeçalho, dados a partir da linha 2
+
 function openDriveModal(){
   document.getElementById('modal-uname').textContent=USERS[currentUser].name;
-  document.getElementById('modal-fname').textContent=`fig-${currentUser}-copa2026.json`;
   document.getElementById('cid-input').value=clientId;
+  document.getElementById('modal-step-cid').style.display='';
+  document.getElementById('modal-step-sheet').style.display='none';
   document.getElementById('drive-modal').classList.add('open');
 }
 function closeDriveModal(){document.getElementById('drive-modal').classList.remove('open');}
 
+// PASSO 1 — OAuth
 function iniciarAuth(){
   const v=document.getElementById('cid-input').value.trim();
   if(!v){toast('Cole seu Client ID');return;}
-  clientId=v;localStorage.setItem('gdrive_cid',clientId);closeDriveModal();
+  clientId=v;
+  localStorage.setItem('gdrive_cid',clientId);
   const base=window.location.href.split('?')[0].split('#')[0];
-  const p=new URLSearchParams({client_id:clientId,redirect_uri:base,response_type:'token',scope:'https://www.googleapis.com/auth/drive.file',include_granted_scopes:'true'});
+  const p=new URLSearchParams({
+    client_id:clientId,
+    redirect_uri:base,
+    response_type:'token',
+    scope:'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+    include_granted_scopes:'true',
+    prompt:'consent'
+  });
   const popup=window.open('https://accounts.google.com/o/oauth2/v2/auth?'+p,'oauth','width=520,height=620');
   const chk=setInterval(()=>{
     try{
@@ -901,54 +937,149 @@ function iniciarAuth(){
         clearInterval(chk);popup.close();
         const hash=new URLSearchParams(url.split('#')[1]);
         accessToken=hash.get('access_token');
+        // Salva token (expira em 1h mas permite reconectar)
         localStorage.setItem('gdrive_tok_'+currentUser,accessToken);
-        const db=document.getElementById('drive-btn');
-        db.classList.add('on');db.textContent='☁ Drive ✓';
-        toast('Conectado! Carregando...');loadFromDrive();
+        localStorage.setItem('gdrive_tok_time_'+currentUser, Date.now());
+        // Mostra passo 2
+        document.getElementById('modal-step-cid').style.display='none';
+        document.getElementById('modal-step-sheet').style.display='';
+        const sid=localStorage.getItem('gsheet_id');
+        if(sid)document.getElementById('sheet-id-input').value=sid;
       }
     }catch{}
     if(popup.closed)clearInterval(chk);
   },500);
 }
 
-async function loadFromDrive(){
-  const u=currentUser,fname=`fig-${u}-copa2026.json`;
+// PASSO 2 — confirma ID da planilha e carrega
+async function confirmarSheet(){
+  const sid=document.getElementById('sheet-id-input').value.trim();
+  if(!sid){toast('Cole o ID da planilha');return;}
+  sheetId=sid;
+  localStorage.setItem('gsheet_id',sheetId);
+  closeDriveModal();
+  updateDriveBtn(true);
+  toast('Configurado! Inicializando planilha...');
+  await initSheet();
+  await loadFromSheet(currentUser);
+}
+
+// Cria abas se não existirem e cabeçalhos
+async function initSheet(){
   try{
-    if(!fileIds[u]){
-      const r=await gf(`https://www.googleapis.com/drive/v3/files?q=name='${fname}'&spaces=drive`);
-      const d=await r.json();
-      if(d.files&&d.files.length>0){fileIds[u]=d.files[0].id;localStorage.setItem('gdrive_fid_'+u,fileIds[u]);}
+    // Busca metadata da planilha
+    const r=await sf(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}`);
+    const meta=await r.json();
+    const existingTabs=(meta.sheets||[]).map(s=>s.properties.title);
+
+    const toCreate=Object.values(SHEET_TABS).filter(t=>!existingTabs.includes(t));
+    if(toCreate.length>0){
+      // Cria abas faltantes
+      const requests=toCreate.map(t=>({addSheet:{properties:{title:t}}}));
+      await sf(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({requests})
+      });
+      // Adiciona cabeçalhos nas abas novas
+      const data=toCreate.map(t=>({range:`${t}!A1:B1`,values:[['figurinha','estado']]}));
+      await sf(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({valueInputOption:'RAW',data})
+      });
     }
-    if(fileIds[u]){
-      const r=await gf(`https://www.googleapis.com/drive/v3/files/${fileIds[u]}?alt=media`);
-      const d=await r.json();
-      if(d.state){states[u]=d.state;applyState();toast('Dados carregados!');setSyncTxt('Sincronizado');}
-    }else{toast('Arquivo novo – salvo ao marcar');setSyncTxt('Novo');}
-  }catch(e){toast('Erro ao carregar Drive');console.error(e);}
+  }catch(e){console.error('initSheet',e);}
+}
+
+// Carrega dados de uma aba (usuário)
+async function loadFromSheet(user){
+  if(!accessToken||!sheetId)return;
+  const tab=SHEET_TABS[user];
+  setSyncTxt('Carregando...');
+  try{
+    const r=await sf(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tab+'!A2:B1100')}`);
+    const d=await r.json();
+    const rows=d.values||[];
+    if(rows.length>0){
+      const newState=emptyState();
+      rows.forEach(row=>{
+        if(row[0]&&row[1]!==undefined) newState[row[0]]=parseInt(row[1])||0;
+      });
+      states[user]=newState;
+      saveLocal(user);
+      if(user===currentUser){applyState();applyFilter();}
+      toast(`${USERS[user].name} carregado!`);
+      setSyncTxt('✓ Sincronizado');
+    }else{
+      setSyncTxt('Planilha vazia');
+      toast('Planilha vazia – marque figurinhas para salvar');
+    }
+  }catch(e){
+    setSyncTxt('Erro ao carregar');
+    toast('Erro ao carregar planilha');
+    console.error(e);
+  }
+}
+
+// Salva estado completo de um usuário na aba
+async function saveToSheet(user){
+  if(!accessToken||!sheetId)return;
+  const tab=SHEET_TABS[user];
+  const st=states[user];
+  // Monta array de linhas [key, valor]
+  const values=Object.entries(st).map(([k,v])=>[k,v]);
+  // Cabeçalho + dados
+  const allRows=[['figurinha','estado'],...values];
+  try{
+    await sf(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tab+'!A1')}?valueInputOption=RAW`,{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({values:allRows})
+    });
+    setSyncTxt('✓ '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}));
+  }catch(e){
+    setSyncTxt('Erro ao salvar');
+    console.error(e);
+  }
 }
 
 function scheduleSave(){
-  if(!accessToken)return;
-  clearTimeout(saveTimer);setSyncTxt('...');
-  saveTimer=setTimeout(saveToDrive,1500);
+  saveLocal(currentUser);
+  if(!accessToken||!sheetId)return;
+  clearTimeout(saveTimer);
+  setSyncTxt('...');
+  saveTimer=setTimeout(()=>saveToSheet(currentUser),2000);
 }
 
-async function saveToDrive(){
-  const u=currentUser,fname=`fig-${u}-copa2026.json`;
-  const body=JSON.stringify({state:states[u],user:USERS[u].name,updated:new Date().toISOString()});
-  try{
-    if(fileIds[u]){
-      await gf(`https://www.googleapis.com/upload/drive/v3/files/${fileIds[u]}?uploadType=media`,{method:'PATCH',headers:{'Content-Type':'application/json'},body});
+function sf(url,opts={}){
+  opts.headers={...(opts.headers||{}),'Authorization':'Bearer '+accessToken};
+  return fetch(url,opts);
+}
+
+// Reconecta token salvo ao selecionar usuário
+function tryReconnect(user){
+  const tok=localStorage.getItem('gdrive_tok_'+user);
+  const t=parseInt(localStorage.getItem('gdrive_tok_time_'+user)||'0');
+  const expired=Date.now()-t > 55*60*1000; // 55 min
+  if(tok&&!expired){
+    accessToken=tok;
+    updateDriveBtn(true);
+    if(sheetId){
+      setSyncTxt('Carregando...');
+      loadFromSheet(user);
     }else{
-      const m=await gf('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fname,mimeType:'application/json'})});
-      const md=await m.json();fileIds[u]=md.id;localStorage.setItem('gdrive_fid_'+u,fileIds[u]);
-      await gf(`https://www.googleapis.com/upload/drive/v3/files/${fileIds[u]}?uploadType=media`,{method:'PATCH',headers:{'Content-Type':'application/json'},body});
+      setSyncTxt('Sem planilha');
     }
-    setSyncTxt('✓ '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}));
-  }catch(e){setSyncTxt('Erro');console.error(e);}
+  }else{
+    accessToken=null;
+    updateDriveBtn(false);
+    setSyncTxt('');
+  }
 }
 
-function gf(url,opts={}){opts.headers={...(opts.headers||{}),'Authorization':'Bearer '+accessToken};return fetch(url,opts);}
+function updateDriveBtn(connected){
+  const db=document.getElementById('drive-btn');
+  if(connected){db.classList.add('on');db.textContent='⛅ Sheets ✓';}
+  else{db.classList.remove('on');db.textContent='⛅ Sheets';}
+}
 
 // ══════════════════════════════════════
 //  INIT
